@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.7;
-
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
@@ -12,7 +12,7 @@ import "./ERC721Token.sol";
 error Not__Owner();
 error No__Rewards();
 
-contract Staking is ERC721Holder {
+contract Staking is ERC721Holder, ReentrancyGuard {
     NFTMint private NFTItem;
     IERC721 private token;
     uint256 private totalTokens;
@@ -54,7 +54,7 @@ contract Staking is ERC721Holder {
         );
     }
 
-    function claimRewards() public {
+    function claimRewards() public nonReentrant {
         uint256 rewards = calculatePoints(msg.sender) + stakers[msg.sender].unclaimedpoints;
         uint256 numOfNft = rewards / month;
         if (numOfNft < 1) revert No__Rewards();
@@ -64,12 +64,12 @@ contract Staking is ERC721Holder {
         emit Claimed(msg.sender, block.timestamp, numOfNft);
     }
 
-    function stakeNFT(uint256 _tokenId) public {
+    function stakeNFT(uint256 _tokenId) public nonReentrant {
         if (token.ownerOf(_tokenId) != msg.sender) revert Not__Owner();
         StakedToken memory stakedToken = StakedToken(msg.sender, _tokenId);
         stakers[msg.sender].stakedTokens.push(stakedToken);
         stakers[msg.sender].amountStaked++;
-        
+
         stakerAddress[_tokenId] = msg.sender;
         stakers[msg.sender].tokenOwner = msg.sender;
         stakers[msg.sender].Updateblocktime = block.timestamp;
@@ -77,10 +77,16 @@ contract Staking is ERC721Holder {
         emit Stake(msg.sender, _tokenId, block.timestamp);
     }
 
-    function unStakeNFT(uint256 _tokenId) public {
+    function unStakeNFT(uint256 _tokenId) public nonReentrant {
         if (stakerAddress[_tokenId] != msg.sender) revert Not__Owner();
         if (stakers[msg.sender].amountStaked < 1) revert Not__Owner();
-        claimRewards();
+        uint256 rewards = calculatePoints(msg.sender) + stakers[msg.sender].unclaimedpoints;
+        uint256 numOfNft = rewards / month;
+        if (numOfNft < 1) revert No__Rewards();
+        if (numOfNft >= 1) stakers[msg.sender].Updateblocktime = block.timestamp;
+        stakers[msg.sender].unclaimedpoints = rewards % month;
+        NFTItem.mint(msg.sender, numOfNft);
+        emit Claimed(msg.sender, block.timestamp, numOfNft);
         uint256 index = 0;
         for (uint256 i = 0; i < stakers[msg.sender].stakedTokens.length; i++) {
             if (
